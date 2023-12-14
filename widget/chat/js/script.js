@@ -58,7 +58,7 @@ function loadTemplates() {
     //  Loading message templates
     $("#templates").load(
         `theme/${settings.template}/template.html`,
-        function(response, status, xhr) {
+        function (response, status, xhr) {
             if (status == "error") {
                 var msg = "Sorry but there was an error: ";
                 console.error(msg + xhr.status + " " + xhr.statusText);
@@ -131,10 +131,13 @@ async function pushMessage(type, message) {
             if (message.role === 3) {
                 message.classes.push("moderator");
             }
+            if (message.role === 2) {
+                message.classes.push("vip");
+            }
 
             break;
 
-            // Reward message from Twitch
+        // Reward message from Twitch
         case "reward":
             message.msgId = message.id;
             message.title = message.reward.title;
@@ -153,14 +156,14 @@ async function pushMessage(type, message) {
 
             break;
 
-            // Message from Youtube
+        // Message from Youtube
         case "message":
 
 
             // Adding default classes
             message.classes = ["msg"];
 
-            message.msgId = message.eventId;
+            message.msgId = message.messageId;
             message.displayName = message.user.name;
             message.userId = message.user.id;
 
@@ -184,21 +187,21 @@ async function pushMessage(type, message) {
     }
 
     const msg = new Promise((resolve, reject) => {
-            // Note: This is to prevent a streamer.bot message to not disappear.
-            // - This could be a bug and will maybe be removed on a later date.
-            if (message.msgId == undefined) {
-                console.debug("Message has no ID");
-                message.msgId = makeid(6);
-            }
+        // Note: This is to prevent a streamer.bot message to not disappear.
+        // - This could be a bug and will maybe be removed on a later date.
+        if (message.msgId == undefined) {
+            console.debug("Message has no ID");
+            message.msgId = makeid(6);
+        }
 
-            resolve(getProfileImage(type, message));
-        })
+        resolve(getProfileImage(type, message));
+    })
         .then((avatar) => {
             message.avatar = avatar;
             return renderBadges(message);
         })
-        .then((bages) => {
-            message.badges = bages;
+        .then((badges) => {
+            message.badges = badges;
             return renderEmotes(message);
         })
         .then((msg) => {
@@ -211,7 +214,7 @@ async function pushMessage(type, message) {
         .then(() => {
             //Prevent clipping
             var currentHeight = 0;
-            $("#chat").children().each(function() {
+            $("#chat").children().each(function () {
                 currentHeight += $(this).outerHeight(true);
             });
 
@@ -238,7 +241,7 @@ async function pushMessage(type, message) {
                 count++;
             }
         })
-        .catch(function(error) {
+        .catch(function (error) {
             console.error(error);
         });
 }
@@ -301,14 +304,14 @@ function removeMessage(msgId) {
     console.log("Hide ID " + msgId + "in " + settings.animations.hidedelay);
 
     const msg = new Promise((resolve, reject) => {
-        delay(settings.animations.hidedelay).then(function() {
+        delay(settings.animations.hidedelay).then(function () {
             $("#" + msgId).addClass("animate__" + settings.animations.hideAnimation);
-            $("#" + msgId).bind("animationend", function() {
+            $("#" + msgId).bind("animationend", function () {
                 $("#" + msgId).remove();
             });
             resolve();
         });
-    }).catch(function(error) {
+    }).catch(function (error) {
         console.error(error);
     });
 }
@@ -337,21 +340,90 @@ async function renderBadges(message) {
  * @param {object} message
  * @returns
  */
+
+const FFZEffects = [
+    // Standard
+    "ffzX", "ffzY", "ffzCursed", "ffzW",
+    // Premium
+    "ffzRainbow", "ffzJam",
+    "ffzBounce", "ffzSpin", "ffzLeave",
+    "ffzArrive",
+    // Background Effects
+    "ffzHyper", "ffzSlide"
+];
+
+
+function sortEmotes(emotes) {
+    // Ensure that the input array is not empty
+    if (emotes.length === 0) {
+        return null;
+    }
+    emotes.sort((a, b) => Math.abs(a.endIndex) - Math.abs(b.endIndex));
+    return emotes;
+}
+
+
 async function renderEmotes(message) {
 
-    if (!message.emotes) return message;
+    if (message.emotes.length == 0) return message;
+
+    // Make sure the Emotes are in order
+    message.emotes = sortEmotes(message.emotes);
 
     // Check if Message is emote only
     if (message.message.split(" ").length == message.emotes.length) {
         message.classes.push("emoteonly");
     }
 
-    message.emotes.forEach((emote) => {
-        message.message = message.message.replace(
-            emote.name,
-            `<img class="emote" src="${emote.imageUrl}">`
-        );
+    var emote_key = 0;
+
+    // Adding classes for styles
+    Object.entries(message.emotes).forEach(e => {
+        const [key, emote] = e;
+        message.emotes[key]['classes'] = ["emote"];
+
+        if (emote.type == "FFZGlobal" && FFZEffects.includes(emote.name)) {
+
+            message.emotes[emote_key]["classes"].push(emote.name);
+            message.message = message.message.replace(
+                emote.name,
+                ``
+            );
+            delete message.emotes[key]
+        }
+        else {
+            emote_key = key
+            message.emotes[key]["classes"].push(emote.name);
+        }
     });
+
+    let emoteSearchPointer = 0;
+    let formattedMessage = "";
+
+    // Render
+    message.emotes.forEach((emote) => {
+
+        let searchStr = message.message.substring(emoteSearchPointer);
+        let emoteLocation = searchStr.indexOf(emote.name);
+
+        console.log(emoteSearchPointer, searchStr);
+
+        let replacement;
+
+        if (emote.classes.includes("ffzHyper") || emote.classes.includes("ffzSlide")) {
+            replacement = `<div class="${emote.classes.join(" ")}" style="background-image:url(${emote.imageUrl})"><div>`;
+            
+        } else {
+            replacement = `<img class="${emote.classes.join(" ")}" src="${emote.imageUrl}">`
+        }
+
+        formattedMessage += searchStr.substring(0, emoteLocation) + replacement + " ";
+        emoteSearchPointer += emoteLocation + emote.name.length;
+    });
+
+    if (formattedMessage){
+        message.message = formattedMessage + message.message.substring(emoteSearchPointer);
+    }
 
     return message;
 }
@@ -449,7 +521,7 @@ function ClearChat() {
 
 // Helper Code
 function delay(t, v) {
-    return new Promise(function(resolve) {
+    return new Promise(function (resolve) {
         setTimeout(resolve.bind(null, v), t);
     });
 }
@@ -466,15 +538,15 @@ function debugMessages() {
 
     const badges = [
         [{
-                "name": "vip",
-                "version": "1",
-                "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/3"
-            },
-            {
-                "name": "subscriber",
-                "version": "0",
-                "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3"
-            }
+            "name": "vip",
+            "version": "1",
+            "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/3"
+        },
+        {
+            "name": "subscriber",
+            "version": "0",
+            "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3"
+        }
         ],
         [{
             "name": "premium",
@@ -482,20 +554,20 @@ function debugMessages() {
             "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/3"
         }],
         [{
-                "name": "broadcaster",
-                "version": "1",
-                "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/3"
-            },
-            {
-                "name": "subscriber",
-                "version": "0",
-                "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3"
-            },
-            {
-                "name": "glhf-pledge",
-                "version": "1",
-                "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/3158e758-3cb4-43c5-94b3-7639810451c5/3"
-            }
+            "name": "broadcaster",
+            "version": "1",
+            "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/3"
+        },
+        {
+            "name": "subscriber",
+            "version": "0",
+            "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3"
+        },
+        {
+            "name": "glhf-pledge",
+            "version": "1",
+            "imageUrl": "https://static-cdn.jtvnw.net/badges/v1/3158e758-3cb4-43c5-94b3-7639810451c5/3"
+        }
         ]
     ];
     const names = [
